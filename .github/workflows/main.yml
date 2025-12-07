@@ -19,6 +19,8 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        # 添加token配置，确保推送权限
+        token: ${{ secrets.GITHUB_TOKEN }}
         
     - name: Configure Git
       run: |
@@ -27,10 +29,28 @@ jobs:
         
     - name: Sync from upstream
       run: |
+        # 添加上游仓库
         git remote add upstream https://github.com/ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats.git || true
+        
+        # 获取上游更新
+        echo "正在获取上游更新..."
         git fetch upstream
-        git merge upstream/main --allow-unrelated-histories -m "Auto-sync from upstream $(date +'%Y-%m-%d %H:%M:%S')" || true
-        git push origin main || true
+        
+        # 合并上游分支到本地，以我们的版本优先
+        echo "正在合并上游更改..."
+        if git merge upstream/main --no-commit; then
+          echo "无冲突，提交合并..."
+          git commit -m "Auto-sync from upstream $(date +'%Y-%m-%d %H:%M:%S')"
+        else
+          echo "存在冲突，以我们的版本为准..."
+          git checkout --ours .
+          git add .
+          git commit -m "Auto-sync from upstream $(date +'%Y-%m-%d %H:%M:%S') - Resolved conflicts in favor of local changes" || echo "使用现有提交"
+        fi
+        
+        # 推送到origin
+        echo "正在推送到origin..."
+        git push origin main
         
     - name: Package titles directory
       id: package
@@ -61,40 +81,49 @@ jobs:
           # 保存到环境变量
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "ZIP_PATH=$(pwd)/$ZIP_NAME" >> $GITHUB_ENV
-          
-          echo "::set-output name=zip_name::$ZIP_NAME"
-          echo "::set-output name=version::$VERSION"
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
         else
           echo "错误: titles目录不存在!"
           exit 1
         fi
         
-    - name: Debug - Show environment
+    - name: Install GitHub CLI
       run: |
-        echo "ZIP_NAME: $ZIP_NAME"
-        echo "VERSION: $VERSION"
-        echo "当前目录:"
-        pwd
-        ls -la
+        # 安装GitHub CLI
+        sudo apt-get update
+        sudo apt-get install -y gh
         
     - name: Create Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         # 使用GitHub CLI创建发布
-        echo "正在创建发布 $VERSION..."
+        echo "正在创建发布 ${{ env.VERSION }}..."
         
-        # 首先检查release是否已存在
-        if gh release view "$VERSION" >/dev/null 2>&1; then
-          echo "Release $VERSION 已存在，删除旧版本..."
-          gh release delete "$VERSION" -y
+        # 检查release是否已存在
+        echo "检查是否已存在同名发布..."
+        if gh release view "${{ env.VERSION }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          echo "Release ${{ env.VERSION }} 已存在，删除旧版本..."
+          gh release delete "${{ env.VERSION }}" --repo "$GITHUB_REPOSITORY" -y
         fi
         
         # 创建新发布
-        gh release create "$VERSION" \
-          --title "NX-60FPS-RES-GFX-Cheats $VERSION" \
-          --notes "自动同步和构建版本 - $TIMESTAMP" \
-          "$ZIP_NAME"
+        echo "正在创建新发布..."
+        gh release create "${{ env.VERSION }}" \
+          --title "NX-60FPS-RES-GFX-Cheats ${{ env.VERSION }}" \
+          --notes "自动同步和构建版本 - ${{ env.TIMESTAMP }}
           
-        echo "Release $VERSION 创建成功!"
+          这是自动同步自上游仓库并打包的版本。
+          上游仓库: https://github.com/ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats
+          同步时间: $(date)" \
+          "${{ env.ZIP_NAME }}" \
+          --repo "$GITHUB_REPOSITORY"
+          
+        echo "Release ${{ env.VERSION }} 创建成功!"
+        
+    - name: Clean up
+      if: always()
+      run: |
+        # 清理临时文件
+        echo "清理临时文件..."
+        rm -f NX-60FPS-RES-GFX-Cheats-*.zip || true
