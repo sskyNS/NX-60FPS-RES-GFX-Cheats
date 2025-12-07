@@ -1,0 +1,76 @@
+name: Hourly Release Build
+
+on:
+  schedule:
+    # 每小时运行一次
+    - cron: '0 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Package titles directory
+      run: |
+        # 获取当前时间
+        BUILD_TIME=$(date +'%Y.%m.%d.%H%M')
+        BUILD_DATE=$(date +'%Y-%m-%d %H:%M:%S')
+        
+        echo "Build time: $BUILD_TIME"
+        
+        # 检查titles目录
+        if [ ! -d "titles" ]; then
+          echo "ERROR: titles directory not found!"
+          exit 1
+        fi
+        
+        # 创建压缩包
+        ZIP_NAME="NX-60FPS-RES-GFX-Cheats-$BUILD_TIME.zip"
+        zip -r "$ZIP_NAME" "titles/"
+        
+        # 计算文件大小
+        FILE_SIZE=$(stat -c%s "$ZIP_NAME")
+        FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE / 1024 / 1024" | bc)
+        
+        echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
+        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
+        echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
+        echo "FILE_SIZE_MB=$FILE_SIZE_MB" >> $GITHUB_ENV
+        
+    - name: Create Hourly Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: "hourly-${{ env.BUILD_TIME }}"
+        name: "Hourly Build - ${{ env.BUILD_TIME }}"
+        body: |
+          ## 每小时自动构建
+          
+          **构建时间:** ${{ env.BUILD_DATE }}
+          **文件大小:** ${{ env.FILE_SIZE_MB }} MB
+          
+          此版本由GitHub Actions自动每小时构建发布。
+          
+          ### 包含内容：
+          - `titles/` 目录下的所有金手指文件
+          
+          ### 使用说明：
+          1. 下载ZIP文件
+          2. 解压到Switch的SD卡相应目录
+          3. 确保文件结构正确
+          
+          ---
+          
+          *注意：此为自动构建版本，请根据需要使用*
+          
+        draft: false
+        prerelease: false
+        files: ${{ env.ZIP_NAME }}
+        token: ${{ secrets.GITHUB_TOKEN }}
