@@ -76,7 +76,7 @@ jobs:
           echo "titles目录存在，包含文件:"
           find titles -type f | head -20
           
-          # 创建版本号（仅用于发布标签）
+          # 创建版本号（用于历史记录）
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
           VERSION="v1.0.$TIMESTAMP"
           
@@ -109,40 +109,60 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gh
         
-    - name: Create Release
-      # 只有有更新或手动触发时才创建发布
+    - name: Create Historical Release
+      # 只有有更新或手动触发时才创建历史发布
       if: steps.sync.outputs.has_changes == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        # 使用GitHub CLI创建发布
-        echo "正在创建发布 ${{ env.VERSION }}..."
-        
-        # 检查release是否已存在
-        echo "检查是否已存在同名发布..."
-        if gh release view "${{ env.VERSION }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-          echo "Release ${{ env.VERSION }} 已存在，删除旧版本..."
-          gh release delete "${{ env.VERSION }}" --repo "$GITHUB_REPOSITORY" -y
-        fi
-        
-        # 创建新发布
-        echo "正在创建新发布..."
+        # 创建带时间戳的历史版本（用于记录）
+        echo "正在创建历史发布 ${{ env.VERSION }}..."
         gh release create "${{ env.VERSION }}" \
-          --title "NX-60FPS-RES-GFX-Cheats ${{ env.VERSION }}" \
-          --notes "自动同步和构建版本 - ${{ env.TIMESTAMP }}
+          --title "NX-60FPS-RES-GFX-Cheats (历史版本 ${{ env.TIMESTAMP }})" \
+          --notes "历史构建版本，归档用
           
-          上游仓库: https://github.com/ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats
-          同步时间: $(date)
-           
-          压缩包包含最新的titles目录内容，文件名为NX-60FPS-RES-GFX-Cheats.zip" \
+          构建时间: ${{ env.TIMESTAMP }}
+          上游提交哈希: ${{ steps.sync.outputs.upstream_hash }}" \
           "${{ env.ZIP_NAME }}" \
           --repo "$GITHUB_REPOSITORY"
           
-        echo "Release ${{ env.VERSION }} 创建成功!"
+        echo "历史发布 ${{ env.VERSION }} 创建成功!"
+        
+    - name: Create/Update Latest Release
+      # 无论有无更新，只要运行到这一步，就更新latest发布
+      if: steps.sync.outputs.has_changes == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "正在创建/更新 'latest' 发布..."
+        
+        # 检查是否已存在名为 'latest' 的发布
+        if gh release view "latest" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          echo "找到现有的 'latest' 发布，正在更新..."
+          # 删除现有的latest发布
+          gh release delete "latest" --repo "$GITHUB_REPOSITORY" -y
+        fi
+        
+        # 创建新的latest发布（使用--latest标志将其标记为最新）
+        gh release create "latest" \
+          --title "NX-60FPS-RES-GFX-Cheats (最新版)" \
+          --notes "**最新版本** - 自动同步自上游
+          
+          更新时间: $(date)
+          上游仓库: https://github.com/ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats
+          固定下载链接: https://github.com/$GITHUB_REPOSITORY/releases/download/latest/NX-60FPS-RES-GFX-Cheats.zip
+          
+          注意: 此链接始终指向最新版本。" \
+          "${{ env.ZIP_NAME }}" \
+          --repo "$GITHUB_REPOSITORY" \
+          --latest
+          
+        echo "'latest' 发布创建/更新成功!"
+        echo "固定下载链接: https://github.com/$GITHUB_REPOSITORY/releases/download/latest/NX-60FPS-RES-GFX-Cheats.zip"
         
     - name: Clean up
       if: always()
       run: |
-        # 清理临时文件（可选，如果需要保留最新的zip文件可以注释掉这行）
-        # echo "清理临时文件..."
-        # rm -f NX-60FPS-RES-GFX-Cheats.zip || true
+        # 清理临时文件
+        echo "清理临时文件..."
+        rm -f NX-60FPS-RES-GFX-Cheats.zip || true
