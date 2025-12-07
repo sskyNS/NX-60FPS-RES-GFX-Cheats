@@ -1,76 +1,100 @@
-name: Hourly Release Build
+name: Simple Sync and Release
 
 on:
   schedule:
-    # 每小时运行一次
-    - cron: '0 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
-  build-release:
+  sync-and-release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
+    
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
-      
-    - name: Package titles directory
+      with:
+        fetch-depth: 0
+        
+    - name: Configure Git
       run: |
-        # 获取当前时间
-        BUILD_TIME=$(date +'%Y.%m.%d.%H%M')
-        BUILD_DATE=$(date +'%Y-%m-%d %H:%M:%S')
+        git config user.name "GitHub Actions Bot"
+        git config user.email "actions@github.com"
         
-        echo "Build time: $BUILD_TIME"
+    - name: Sync from upstream
+      run: |
+        git remote add upstream https://github.com/ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats.git || true
+        git fetch upstream
+        git merge upstream/main --allow-unrelated-histories -m "Auto-sync from upstream $(date +'%Y-%m-%d %H:%M:%S')" || true
+        git push origin main || true
         
-        # 检查titles目录
-        if [ ! -d "titles" ]; then
-          echo "ERROR: titles directory not found!"
+    - name: Package titles directory
+      id: package
+      run: |
+        echo "当前目录结构:"
+        ls -la
+        
+        echo "检查titles目录:"
+        if [ -d "titles" ]; then
+          echo "titles目录存在，包含文件:"
+          find titles -type f | head -20
+          
+          # 创建版本号
+          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          VERSION="v1.0.$TIMESTAMP"
+          
+          # 创建压缩包
+          ZIP_NAME="NX-60FPS-RES-GFX-Cheats-${TIMESTAMP}.zip"
+          echo "正在创建压缩包: $ZIP_NAME"
+          
+          # 使用更详细的压缩命令
+          zip -r "$ZIP_NAME" titles/ -v
+          
+          # 检查文件是否创建成功
+          echo "压缩包创建完成，文件信息:"
+          ls -lh "$ZIP_NAME"
+          
+          # 保存到环境变量
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "ZIP_PATH=$(pwd)/$ZIP_NAME" >> $GITHUB_ENV
+          
+          echo "::set-output name=zip_name::$ZIP_NAME"
+          echo "::set-output name=version::$VERSION"
+        else
+          echo "错误: titles目录不存在!"
           exit 1
         fi
         
-        # 创建压缩包
-        ZIP_NAME="NX-60FPS-RES-GFX-Cheats-$BUILD_TIME.zip"
-        zip -r "$ZIP_NAME" "titles/"
+    - name: Debug - Show environment
+      run: |
+        echo "ZIP_NAME: $ZIP_NAME"
+        echo "VERSION: $VERSION"
+        echo "当前目录:"
+        pwd
+        ls -la
         
-        # 计算文件大小
-        FILE_SIZE=$(stat -c%s "$ZIP_NAME")
-        FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE / 1024 / 1024" | bc)
+    - name: Create Release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 使用GitHub CLI创建发布
+        echo "正在创建发布 $VERSION..."
         
-        echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
-        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
-        echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
-        echo "FILE_SIZE_MB=$FILE_SIZE_MB" >> $GITHUB_ENV
+        # 首先检查release是否已存在
+        if gh release view "$VERSION" >/dev/null 2>&1; then
+          echo "Release $VERSION 已存在，删除旧版本..."
+          gh release delete "$VERSION" -y
+        fi
         
-    - name: Create Hourly Release
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: "hourly-${{ env.BUILD_TIME }}"
-        name: "Hourly Build - ${{ env.BUILD_TIME }}"
-        body: |
-          ## 每小时自动构建
+        # 创建新发布
+        gh release create "$VERSION" \
+          --title "NX-60FPS-RES-GFX-Cheats $VERSION" \
+          --notes "自动同步和构建版本 - $TIMESTAMP" \
+          "$ZIP_NAME"
           
-          **构建时间:** ${{ env.BUILD_DATE }}
-          **文件大小:** ${{ env.FILE_SIZE_MB }} MB
-          
-          此版本由GitHub Actions自动每小时构建发布。
-          
-          ### 包含内容：
-          - `titles/` 目录下的所有金手指文件
-          
-          ### 使用说明：
-          1. 下载ZIP文件
-          2. 解压到Switch的SD卡相应目录
-          3. 确保文件结构正确
-          
-          ---
-          
-          *注意：此为自动构建版本，请根据需要使用*
-          
-        draft: false
-        prerelease: false
-        files: ${{ env.ZIP_NAME }}
-        token: ${{ secrets.GITHUB_TOKEN }}
+        echo "Release $VERSION 创建成功!"
