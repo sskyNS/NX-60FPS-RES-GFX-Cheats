@@ -2,7 +2,8 @@ name: Simple Sync and Release
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    # 每小时的第 0 分钟运行（每小时一次）
+    - cron: '0 * * * *'
   workflow_dispatch:
   push:
     branches: [main]
@@ -159,10 +160,3 @@ jobs:
           
         echo "'latest' 发布创建/更新成功!"
         echo "固定下载链接: https://github.com/$GITHUB_REPOSITORY/releases/download/latest/NX-60FPS-RES-GFX-Cheats.zip"
-        
-    - name: Clean up
-      if: always()
-      run: |
-        # 清理临时文件
-        echo "清理临时文件..."
-        rm -f NX-60FPS-RES-GFX-Cheats.zip || true
