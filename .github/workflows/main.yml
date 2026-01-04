@@ -2,8 +2,8 @@ name: Simple Sync and Release
 
 on:
   schedule:
-    # 每小时的第 0 分钟运行（每小时一次）
-    - cron: '0 * * * *'
+    # 每 2 天的凌晨 0 点 0 分运行一次
+    - cron: '0 0 */2 * *'
   workflow_dispatch:
   push:
     branches: [main]
